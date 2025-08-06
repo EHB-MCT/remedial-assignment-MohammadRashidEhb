@@ -56,5 +56,5 @@
         "temp/": true,
         "Temp/": true
     },
-    "dotnet.defaultSolution": "ZombieFarm.sln"
+    "dotnet.defaultSolution": "remedial-assignment-MohammadRashidEhb.sln"
 }
