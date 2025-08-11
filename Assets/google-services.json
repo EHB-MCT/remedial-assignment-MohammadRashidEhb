@@ -1,0 +1,30 @@
+{
+  "project_info": {
+    "project_number": "173010847370",
+    "firebase_url": "https://zombiefarm-8c6fc-default-rtdb.europe-west1.firebasedatabase.app",
+    "project_id": "zombiefarm-8c6fc",
+    "storage_bucket": "zombiefarm-8c6fc.firebasestorage.app"
+  },
+  "client": [
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:173010847370:android:b79c04b120038ee7400f73",
+        "android_client_info": {
+          "package_name": "com.yourcompany.zombiefarm"
+        }
+      },
+      "oauth_client": [],
+      "api_key": [
+        {
+          "current_key": "AIzaSyCNBCY0l9c0Ft28Ychqkwc5_DrYHm0recs"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": []
+        }
+      }
+    }
+  ],
+  "configuration_version": "1"
+}

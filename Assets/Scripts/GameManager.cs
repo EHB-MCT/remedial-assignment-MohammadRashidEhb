@@ -4,6 +4,7 @@ using UnityEngine;
 public class GameManager : MonoBehaviour
 {
     // The gamemanager focuses on the core functionality of the game 
+    // Handles zombie spawning, money tracking, and central game coordination.
     public static GameManager Instance { get; private set; }
 
     public GameObject zombiePrefab;

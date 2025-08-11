@@ -1,6 +1,7 @@
 using UnityEngine;
 using UnityEngine.UI;
 
+// Basic zombie enemy logic: health management, damage response, and dying.
 public class Zombie : MonoBehaviour
 {
     public int maxHealth = 2;
@@ -14,6 +15,7 @@ public class Zombie : MonoBehaviour
         Debug.Log("Zombie spawned with health: " + currentHealth);
     }
 
+    // This will be called when the bullet hits 
     public void TakeDamage(int dmg)
     {
         currentHealth -= dmg;
@@ -30,7 +32,7 @@ public class Zombie : MonoBehaviour
         }
     }
 
-
+    // I will add the UI visuals later
     private void UpdateHealthBar()
     {
         if (healthBarFill != null)

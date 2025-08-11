@@ -1,8 +1,9 @@
 using UnityEngine;
 
+// This class takes care of the bullet prefab movement and damage 
 public class Bullet : MonoBehaviour
 {
-    public float speed = 5f;
+    public float speed = 5f; // Bullet speed 
     public int damage = 1; // Each bullet deals 1 damage
 
     void Update()
@@ -12,7 +13,7 @@ public class Bullet : MonoBehaviour
 
     void Start()
     {
-        Destroy(gameObject, 2f); 
+        Destroy(gameObject, 2f);
     }
 
     void OnTriggerEnter2D(Collider2D other)
