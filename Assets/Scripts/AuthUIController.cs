@@ -11,7 +11,6 @@ public class AuthUIController : MonoBehaviour
     public TMP_InputField playerNameInput;
     public TMP_InputField passwordInput;
     public TMP_Text feedbackText;
-
     DatabaseReference dbRef;
 
     void Awake()
@@ -34,6 +33,11 @@ public class AuthUIController : MonoBehaviour
         // Save player data under playerName as unique key
         dbRef.Child("users").Child(playerName).Child("password").SetValueAsync(password);
         feedbackText.text = "Registered successfully!";
+
+        // Immediately log them in after registration
+        PlayerPrefs.SetString("CurrentUserName", playerName);
+        PlayerPrefs.Save();
+        SceneManager.LoadScene("ZombieFarm");
     }
 
     // THis will be called when Login button is pressed 
@@ -63,6 +67,11 @@ public class AuthUIController : MonoBehaviour
             if (storedPassword == enteredPassword)
             {
                 feedbackText.text = "Login successful!";
+                PlayerPrefs.SetString("CurrentUserName", playerName);
+                PlayerPrefs.Save();
+                SceneManager.LoadScene("ZombieFarm");
+
+
                 SceneManager.LoadScene("ZombieFarm");
             }
             else

@@ -1,17 +1,15 @@
 using System.Collections;
 using UnityEngine;
+using Firebase.Database;
 
 // The gamemanager focuses on the core functionality of the game 
 // Handles zombie spawning, money tracking, and central game coordination.
 public class GameManager : MonoBehaviour
 {
     public static GameManager Instance { get; private set; }
-
     public GameObject zombiePrefab;
     public MoneyUIController moneyUIController;
-
     private int money = 0;
-
 
     // Track survivor ownership per lane
     private bool[] survivorsInLane = new bool[3];
@@ -26,27 +24,78 @@ public class GameManager : MonoBehaviour
     // Survivor cost (for now fixed for all types)
     public int survivorCost = 20;
 
+    private DatabaseReference dbRef;
+    public string currentUserName; // The logged-in username
+
     private void Awake()
     {
         if (Instance == null)
+        {
             Instance = this;
+            // init firebase reference
+            dbRef = FirebaseDatabase.DefaultInstance.RootReference;
+
+            // retrieve username from PlayerPrefs
+            currentUserName = PlayerPrefs.GetString("CurrentUserName", "");
+            if (string.IsNullOrEmpty(currentUserName))
+            {
+                Debug.LogError("No username found! Make sure AuthUIController saves it before loading game scene.");
+            }
+        }
         else
+        {
             Destroy(gameObject);
+        }
     }
 
     private void Start()
     {
-        // Spawn zombies in all lanes at start
-        SpawnAllZombiesAtStart();
+        // Load user's saved money first, then start spawning
+        StartCoroutine(LoadMoneyAndInitializeGame());
+    }
 
-        // Show initial money in UI
+    private IEnumerator LoadMoneyAndInitializeGame()
+    {
+        if (string.IsNullOrEmpty(currentUserName))
+        {
+            money = 0;
+        }
+        else
+        {
+            var moneyTask = dbRef.Child("users").Child(currentUserName).Child("money").GetValueAsync();
+            yield return new WaitUntil(() => moneyTask.IsCompleted);
+
+            if (moneyTask.Exception != null)
+            {
+                Debug.LogError("Failed to load user's money: " + moneyTask.Exception);
+                money = 0;
+            }
+            else
+            {
+                var snap = moneyTask.Result;
+                if (snap.Exists && int.TryParse(snap.Value.ToString(), out int value))
+                {
+                    money = value;
+                }
+                else
+                {
+                    money = 0; // start fresh if no data
+                }
+            }
+        }
+
+        // update UI with loaded money
         if (moneyUIController != null)
             moneyUIController.UpdateMoney(money);
+
+        // Spawn zombies in all lanes at start
+        SpawnAllZombiesAtStart();
 
         // Lane 1 starts with a survivor for free
         survivorsInLane[0] = false; // ensures BuySurvivor works
         BuySurvivor(1, 0); // 0 cost for first survivor
     }
+
 
     // Spawns a zombie in a specific lane
     public void SpawnZombieInLane(int laneNumber)
@@ -108,6 +157,30 @@ public class GameManager : MonoBehaviour
         Debug.Log("Money added: €" + amount + ". Total money: €" + money);
         if (moneyUIController != null)
             moneyUIController.UpdateMoney(money);
+        SaveMoneyToFirebase(); // save to database after change
+    }
+
+    // save current money to firebase under this user
+    private void SaveMoneyToFirebase()
+    {
+        if (string.IsNullOrEmpty(currentUserName))
+        {
+            Debug.LogError("Current username empty, can't save money.");
+            return;
+        }
+
+        dbRef.Child("users").Child(currentUserName).Child("money").SetValueAsync(money)
+            .ContinueWith(task =>
+            {
+                if (task.IsFaulted || task.IsCanceled)
+                {
+                    Debug.LogError("Error saving money to Firebase: " + task.Exception);
+                }
+                else
+                {
+                    Debug.Log("Saved money to Firebase: €" + money);
+                }
+            });
     }
 
     public int GetMoney()
@@ -156,7 +229,7 @@ public class GameManager : MonoBehaviour
             // Update money in UI
             if (moneyUIController != null)
                 moneyUIController.UpdateMoney(money);
-
+            SaveMoneyToFirebase(); // save money change
             return true;
         }
         else
