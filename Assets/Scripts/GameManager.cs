@@ -12,17 +12,25 @@ public class GameManager : MonoBehaviour
     private int money = 0;
 
     // Track survivor ownership per lane
-    private bool[] survivorsInLane = new bool[3];
+    private int[] survivorTypeInLane = new int[3]; 
 
-    // Survivor prefab to spawn when purchased
-    public GameObject survivorPrefab;
+    // This is to Keep track of spawned survivor instances so we can destroy on sell
+    private GameObject[] survivorInstances = new GameObject[3];
+
+    // Survivor prefabs for each type (assign in Inspector)
+    public GameObject survivorTypeA_Prefab;
+    public GameObject survivorTypeB_Prefab;
+    public GameObject survivorTypeC_Prefab;
 
     // Positions in the scene where each survivor/zombie should spawn
     public Transform[] survivorLanePositions;
     public Transform[] zombieLanePositions;
 
-    // Survivor cost (for now fixed for all types)
-    public int survivorCost = 20;
+    // Cost configuration
+    public int costTypeA = 20;
+    public int costTypeB = 40;
+    public int costTypeC = 60;
+    public int sellRefundPercent = 50; // Percent of buy price refunded
 
     private DatabaseReference dbRef;
     public string currentUserName; // The logged-in username
@@ -56,31 +64,19 @@ public class GameManager : MonoBehaviour
 
     private IEnumerator LoadMoneyAndInitializeGame()
     {
-        if (string.IsNullOrEmpty(currentUserName))
-        {
-            money = 0;
-        }
-        else
+       if (!string.IsNullOrEmpty(currentUserName))
         {
             var moneyTask = dbRef.Child("users").Child(currentUserName).Child("money").GetValueAsync();
             yield return new WaitUntil(() => moneyTask.IsCompleted);
 
-            if (moneyTask.Exception != null)
+            if (moneyTask.Exception == null && moneyTask.Result.Exists &&
+                int.TryParse(moneyTask.Result.Value.ToString(), out int loadedMoney))
             {
-                Debug.LogError("Failed to load user's money: " + moneyTask.Exception);
-                money = 0;
+                money = loadedMoney;
             }
             else
             {
-                var snap = moneyTask.Result;
-                if (snap.Exists && int.TryParse(snap.Value.ToString(), out int value))
-                {
-                    money = value;
-                }
-                else
-                {
-                    money = 0; // start fresh if no data
-                }
+                money = 0;
             }
         }
 
@@ -88,12 +84,30 @@ public class GameManager : MonoBehaviour
         if (moneyUIController != null)
             moneyUIController.UpdateMoney(money);
 
+         // Load survivors from database
+        if (!string.IsNullOrEmpty(currentUserName))
+        {
+            var survivorTask = dbRef.Child("users").Child(currentUserName).Child("survivors").GetValueAsync();
+            yield return new WaitUntil(() => survivorTask.IsCompleted);
+
+            if (survivorTask.Exception == null && survivorTask.Result.Exists)
+            {
+                foreach (var laneData in survivorTask.Result.Children)
+                {
+                    int laneIndex = int.Parse(laneData.Key.Replace("lane", ""));
+                    int type = int.Parse(laneData.Value.ToString());
+                    if (type > 0)
+                        SpawnSurvivorInLane(laneIndex + 1, type);
+                }
+            }
+        }
+
         // Spawn zombies in all lanes at start
         SpawnAllZombiesAtStart();
 
-        // Lane 1 starts with a survivor for free
-        survivorsInLane[0] = false; // ensures BuySurvivor works
-        BuySurvivor(1, 0); // 0 cost for first survivor
+        // This will ensure lane 1 has at least a TypeA survivor if empty
+        if (survivorTypeInLane[0] == 0)
+            BuySurvivor(1, 1, 0); // free TypeA survivor
     }
 
 
@@ -169,73 +183,127 @@ public class GameManager : MonoBehaviour
             return;
         }
 
-        dbRef.Child("users").Child(currentUserName).Child("money").SetValueAsync(money)
-            .ContinueWith(task =>
-            {
-                if (task.IsFaulted || task.IsCanceled)
-                {
-                    Debug.LogError("Error saving money to Firebase: " + task.Exception);
-                }
-                else
-                {
-                    Debug.Log("Saved money to Firebase: €" + money);
-                }
-            });
+       dbRef.Child("users").Child(currentUserName).Child("money").SetValueAsync(money);
     }
 
-    public int GetMoney()
-    {
-        return money;
-    }
-
-    // I created a Public property to allow UI scripts to check money
     public int Money => money;
 
-    public bool BuySurvivor(int laneNumber, int cost)
+    // Buy & Sell survivor
+    public bool BuySurvivor(int laneNumber, int survivorType, int cost)
     {
         int laneIndex = laneNumber - 1;
+        if (laneIndex < 0 || laneIndex >= survivorTypeInLane.Length) return false;
 
-        // Check for valid lane index
-        if (laneIndex < 0 || laneIndex >= survivorsInLane.Length)
+        if (survivorTypeInLane[laneIndex] != 0)
         {
-            Debug.LogError("Invalid lane number: " + laneNumber);
+            Debug.Log($"Lane {laneNumber} already has a survivor.");
             return false;
         }
 
-        // Check if survivor already exists in lane
-        if (survivorsInLane[laneIndex])
-        {
-            Debug.Log("Lane " + laneNumber + " already has a survivor.");
-            return false;
-        }
-
-        // Check if player has enough money
-        if (money >= cost)
-        {
-            money -= cost;
-            survivorsInLane[laneIndex] = true;
-
-            // Spawn survivor in chosen lane position
-            if (survivorPrefab != null && survivorLanePositions[laneIndex] != null)
-            {
-                Instantiate(survivorPrefab, survivorLanePositions[laneIndex].position, Quaternion.identity);
-                Debug.Log($"Survivor spawned in lane {laneNumber}.");
-            }
-            else
-            {
-                Debug.LogError("Survivor prefab or lane position not assigned for lane " + laneNumber);
-            }
-
-            // Update money in UI
-            if (moneyUIController != null)
-                moneyUIController.UpdateMoney(money);
-            SaveMoneyToFirebase(); // save money change
-            return true;
-        }
-        else
+        if (money < cost)
         {
             Debug.Log("Not enough money to buy survivor.");
             return false;
+        }
+
+        money -= cost;
+        survivorTypeInLane[laneIndex] = survivorType;
+
+        SpawnSurvivorInLane(laneNumber, survivorType);
+
+        if (moneyUIController != null)
+            moneyUIController.UpdateMoney(money);
+
+        SaveMoneyToFirebase();
+        SaveSurvivorsToFirebase();
+        return true;
+    }
+
+    private void SpawnSurvivorInLane(int laneNumber, int survivorType)
+    {
+        int laneIndex = laneNumber - 1;
+        GameObject prefabToSpawn = GetSurvivorPrefab(survivorType);
+
+        if (prefabToSpawn != null && survivorLanePositions[laneIndex] != null)
+        {
+            GameObject spawned = Instantiate(prefabToSpawn, survivorLanePositions[laneIndex].position, Quaternion.identity);
+            survivorInstances[laneIndex] = spawned;
+            survivorTypeInLane[laneIndex] = survivorType;
+        }
+        else
+        {
+            Debug.LogError("Survivor prefab or lane position missing.");
+        }
+    }
+
+    public bool SellSurvivor(int laneNumber)
+    {
+        int laneIndex = laneNumber - 1;
+        if (laneIndex < 0 || laneIndex >= survivorTypeInLane.Length) return false;
+
+        int ownedType = survivorTypeInLane[laneIndex];
+        if (ownedType == 0)
+        {
+            Debug.Log($"No survivor to sell in lane {laneNumber}.");
+            return false;
+        }
+
+        // Destroy instance
+        if (survivorInstances[laneIndex] != null)
+        {
+            Destroy(survivorInstances[laneIndex]);
+            survivorInstances[laneIndex] = null;
+        }
+
+        // Refund
+        int originalCost = GetSurvivorCost(ownedType);
+        int refund = (originalCost * sellRefundPercent) / 100;
+        money += refund;
+
+        survivorTypeInLane[laneIndex] = 0;
+
+        if (moneyUIController != null)
+            moneyUIController.UpdateMoney(money);
+
+        SaveMoneyToFirebase();
+        SaveSurvivorsToFirebase();
+
+        Debug.Log($"Sold survivor type {ownedType} in lane {laneNumber} for €{refund}.");
+        return true;
+    }
+
+    // Prefab Helpers
+    private GameObject GetSurvivorPrefab(int type)
+    {
+        return type switch
+        {
+            1 => survivorTypeA_Prefab,
+            2 => survivorTypeB_Prefab,
+            3 => survivorTypeC_Prefab,
+            _ => null
+        };
+    }
+
+    private int GetSurvivorCost(int type)
+    {
+        return type switch
+        {
+            1 => costTypeA,
+            2 => costTypeB,
+            3 => costTypeC,
+            _ => 0
+        };
+    }
+
+    // Save/Load Survivors
+    private void SaveSurvivorsToFirebase()
+    {
+        if (string.IsNullOrEmpty(currentUserName)) return;
+
+        for (int i = 0; i < survivorTypeInLane.Length; i++)
+        {
+            dbRef.Child("users").Child(currentUserName).Child("survivors")
+                .Child($"lane{i}").SetValueAsync(survivorTypeInLane[i]);
         }
     }
 }
