@@ -18,6 +18,15 @@ public class GameManager : MonoBehaviour
     private int currentWave = 1; 
     public int killsToWave = 20;
     private int killsThisWave = 0;
+    private bool isWaveActive = true;  // true while zombies spawn, false during boss fight
+    private int moneyEarnedThisWave = 0;
+
+    // For the ZombieBoss fight
+    public GameObject bossPrefab;
+    public Transform bossSpawnPoint;
+    private GameObject currentBossInstance;
+    [HideInInspector] public int bossClickCount = 0; // Reset at boss spawn time
+    public BossFightUIController bossFightUIController;
     
     // Track survivor ownership per lane
     private int[] survivorTypeInLane = new int[3]; 
@@ -125,6 +134,9 @@ public class GameManager : MonoBehaviour
     // Spawns a zombie in a specific lane
     public void SpawnZombieInLane(int laneNumber)
     {
+        if (!isWaveActive)
+        return; // Don't spawn zombies if wave is paused
+        
         int laneIndex = laneNumber - 1;
         if (laneIndex < 0 || laneIndex >= zombieLanePositions.Length)
         {
@@ -179,6 +191,7 @@ public class GameManager : MonoBehaviour
     public void AddMoney(int amount)
     {
         money += amount;
+        moneyEarnedThisWave += amount;
         Debug.Log("Money added: €" + amount + ". Total money: €" + money);
         if (moneyUIController != null)
             moneyUIController.UpdateMoney(money);
@@ -213,6 +226,8 @@ public class GameManager : MonoBehaviour
     // Display wavecomplete message + increment next wave with 10 more zombies
     private void OnWaveComplete()
     {
+        isWaveActive = false; // stop zombie spawning
+
         if (waveCompleteText != null)
         {
             waveCompleteText.gameObject.SetActive(true);
@@ -226,6 +241,90 @@ public class GameManager : MonoBehaviour
 
         if (killsUIController != null)
             killsUIController.UpdateKills(killsThisWave, killsToWave);
+
+
+        // Find all survivors and disable their shooting
+        SurvivorShooter[] survivors = FindObjectsOfType<SurvivorShooter>();
+        foreach (var survivor in survivors)
+        {
+            survivor.canShoot = false;
+        }
+        // Spawn the boss
+        SpawnBoss();
+    }
+
+    private void SpawnBoss()
+    {
+        if (bossPrefab != null && bossSpawnPoint != null)
+        {
+            currentBossInstance = Instantiate(bossPrefab, bossSpawnPoint.position, Quaternion.identity);
+
+            // Subscribe to boss defeated event
+            ZombieBoss bossScript = currentBossInstance.GetComponent<ZombieBoss>();
+            if (bossScript != null)
+            {
+                bossScript.onBossDefeated.AddListener(OnBossDefeated);
+            }
+        }
+        if (bossFightUIController != null)
+            bossFightUIController.ShowBossUI(true);
+        bossClickCount = 0;
+        if (bossFightUIController != null)
+            bossFightUIController.UpdateBossClicks(bossClickCount);
+        if (bossFightUIController != null)
+            bossFightUIController.UpdateBossBonus(moneyEarnedThisWave, bossClickCount, moneyMultiplierPerClick);
+
+    }
+
+    public void BossClicked()
+    {
+        bossClickCount++;
+        if (bossFightUIController != null)
+            bossFightUIController.UpdateBossClicks(bossClickCount);
+
+        // To update the reward bonus live:
+        if (bossFightUIController != null)
+            bossFightUIController.UpdateBossBonus(moneyEarnedThisWave, bossClickCount, moneyMultiplierPerClick);
+    }
+
+
+    public float moneyMultiplierPerClick = 0.1f; // 10% extra per click (customizable in Inspector)
+
+    public void OnBossDefeated()
+    {
+        // Calculate bonus/penalty
+        float multiplier = 1.0f;
+        if (bossClickCount > 0)
+        {
+            multiplier += bossClickCount * moneyMultiplierPerClick;
+        }
+        else
+        {
+            multiplier = 0.5f; // Lose half the money as penalty for no clicks
+        }
+
+        int finalWaveEarnings = Mathf.RoundToInt(moneyEarnedThisWave * multiplier);
+
+        money -= moneyEarnedThisWave; // Remove the initial earned money
+        AddMoney(finalWaveEarnings);  // Add the final, multiplied (or penalized) money
+
+        // Proceed with the rest as before (resume game, reset counters, etc)
+        bossClickCount = 0;
+        moneyEarnedThisWave = 0;
+
+        isWaveActive = true;
+        SurvivorShooter[] survivors = FindObjectsOfType<SurvivorShooter>();
+        foreach (var survivor in survivors)
+            survivor.canShoot = true;
+
+        SpawnAllZombiesAtStart();
+
+        if (killsUIController != null)
+            killsUIController.UpdateKills(killsThisWave, killsToWave);
+        if (waveCompleteText != null)
+            waveCompleteText.gameObject.SetActive(false);
+        if (bossFightUIController != null)
+            bossFightUIController.ShowBossUI(false);
 
     }
 

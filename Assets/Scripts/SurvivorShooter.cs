@@ -6,11 +6,15 @@ public class SurvivorShooter : MonoBehaviour
     public GameObject bulletPrefab;
     public Transform firePoint;
     public float shootInterval = 1f;
-
     private float timer;
+
+    public bool canShoot = true;
 
     void Update()
     {
+        if (!canShoot)
+            return;
+
         timer += Time.deltaTime;
         if (timer >= shootInterval)
         {
