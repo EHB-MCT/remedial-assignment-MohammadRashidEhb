@@ -9,6 +9,6 @@ public class MoneyUIController : MonoBehaviour
     public void UpdateMoney(int amount)
     {
         if (moneyText != null)
-            moneyText.text = "Money: €" + amount.ToString();
+            moneyText.text = "€" + amount.ToString();
     }
 }

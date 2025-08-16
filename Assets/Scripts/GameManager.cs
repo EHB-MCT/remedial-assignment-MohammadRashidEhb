@@ -1,6 +1,7 @@
 using System.Collections;
 using UnityEngine;
 using Firebase.Database;
+using TMPro;
 
 // The gamemanager focuses on the core functionality of the game 
 // Handles zombie spawning, money tracking, and central game coordination.
@@ -11,6 +12,13 @@ public class GameManager : MonoBehaviour
     public MoneyUIController moneyUIController;
     private int money = 0;
 
+    // For wave/kills
+    public KillsUIController killsUIController; 
+    public TMP_Text waveCompleteText; 
+    private int currentWave = 1; 
+    public int killsToWave = 20;
+    private int killsThisWave = 0;
+    
     // Track survivor ownership per lane
     private int[] survivorTypeInLane = new int[3]; 
 
@@ -60,6 +68,10 @@ public class GameManager : MonoBehaviour
     {
         // Load user's saved money first, then start spawning
         StartCoroutine(LoadMoneyAndInitializeGame());
+
+        // Initialize kills UI
+        if (killsUIController != null)
+            killsUIController.UpdateKills(killsThisWave, killsToWave);
     }
 
     private IEnumerator LoadMoneyAndInitializeGame()
@@ -109,7 +121,6 @@ public class GameManager : MonoBehaviour
         if (survivorTypeInLane[0] == 0)
             BuySurvivor(1, 1, 0); // free TypeA survivor
     }
-
 
     // Spawns a zombie in a specific lane
     public void SpawnZombieInLane(int laneNumber)
@@ -183,7 +194,47 @@ public class GameManager : MonoBehaviour
             return;
         }
 
-       dbRef.Child("users").Child(currentUserName).Child("money").SetValueAsync(money);
+        dbRef.Child("users").Child(currentUserName).Child("money").SetValueAsync(money);
+    }
+
+    // Wave system, => Increment kills, OnwaveComplete will be called when wave is finished
+    public void IncrementKill()
+    {
+        killsThisWave++;
+        if (killsUIController != null)
+            killsUIController.UpdateKills(killsThisWave, killsToWave);
+
+        if (killsThisWave >= killsToWave)
+        {
+            OnWaveComplete();
+        }
+    }
+
+    // Display wavecomplete message + increment next wave with 10 more zombies
+    private void OnWaveComplete()
+    {
+        if (waveCompleteText != null)
+        {
+            waveCompleteText.gameObject.SetActive(true);
+            waveCompleteText.text = $"Wave {currentWave} Complete!"; // use currentWave variable
+            StartCoroutine(HideWaveCompleteMessage());
+        }
+
+        killsThisWave = 0; // Reset kill count for next wave
+        currentWave++; // increment wave count (declare and initialize at start)
+        killsToWave += 10;
+
+        if (killsUIController != null)
+            killsUIController.UpdateKills(killsThisWave, killsToWave);
+
+    }
+
+    // Hide Wavecomplete message after delay
+    private IEnumerator HideWaveCompleteMessage()
+    {
+        yield return new WaitForSeconds(2.0f);
+        if (waveCompleteText != null)
+            waveCompleteText.gameObject.SetActive(false);
     }
 
     public int Money => money;

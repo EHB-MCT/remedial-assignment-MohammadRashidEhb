@@ -10,6 +10,7 @@ public class Zombie : MonoBehaviour
 
     // NEW: track which lane this zombie belongs to
     public int laneNumber;
+    
 
     void Start()
     {
@@ -33,6 +34,7 @@ public class Zombie : MonoBehaviour
         {
             Debug.Log("Zombie died. Respawning in same lane.");
             GameManager.Instance.AddMoney(5);
+            GameManager.Instance.IncrementKill();
             GameManager.Instance.SpawnZombieInLaneAfterDelay(laneNumber, 0.5f);
             Destroy(gameObject);
         }
