@@ -47,8 +47,16 @@ public class BossFightUIController : MonoBehaviour
         if (bossBonusText != null)
         {
             float mult = 1f + clickCount * perClickBonus;
-            int bonus = Mathf.RoundToInt(baseMoney * mult);
-            bossBonusText.text = $"Multiplier: x{mult:F1} (Bonus: €{bonus})";
+            int bonus = Mathf.RoundToInt(baseMoney * (mult - 1f));
+            bossBonusText.text = $"Multiplier: x{mult:F1}\nBonus: €{bonus}";
+        }
+    }
+
+    public void UpdateBossBonusOnly(int bonusAmount)
+    {
+        if (bossBonusText != null)
+        {
+            bossBonusText.text = $"Bonus: €{bonusAmount}";
         }
     }
 

@@ -16,10 +16,13 @@ public class GameManager : MonoBehaviour
     public KillsUIController killsUIController;
     public TMP_Text waveCompleteText;
     private int currentWave = 1;
+    public int CurrentWave => currentWave;
     public int killsToWave = 20;
     private int killsThisWave = 0;
     private bool isWaveActive = true;  // true while zombies spawn, false during boss fight
     private int moneyEarnedThisWave = 0;
+    public int baseZombieHealth = 2; // starting health of zombies
+    public int baseZombieReward = 5; // starting reward per zombie
 
     // For the ZombieBoss fight
     public GameObject bossPrefab;
@@ -226,6 +229,7 @@ public class GameManager : MonoBehaviour
             if (zombieScript != null)
             {
                 zombieScript.laneNumber = laneNumber;
+                zombieScript.maxHealth = baseZombieHealth + (currentWave - 1); // increase health per wave
             }
 
             Debug.Log($"Spawned a new zombie in lane {laneNumber}.");
@@ -294,9 +298,20 @@ public class GameManager : MonoBehaviour
         }
     }
 
+    private void DestroyAllZombies()
+    {
+        Zombie[] zombies = FindObjectsOfType<Zombie>();
+        foreach (Zombie zombie in zombies)
+        {
+            Destroy(zombie.gameObject);
+        }
+    }
+
     // Display wavecomplete message + increment next wave with 10 more zombies
     private void OnWaveComplete()
     {
+        DestroyAllZombies();
+
         isWaveActive = false; // stop zombie spawning
 
         if (waveCompleteText != null)
@@ -308,11 +323,16 @@ public class GameManager : MonoBehaviour
 
         killsThisWave = 0; // Reset kill count for next wave
         currentWave++; // increment wave count (declare and initialize at start)
-        killsToWave += 10;
+        killsToWave += 5;
 
         if (killsUIController != null)
             killsUIController.UpdateKills(killsThisWave, killsToWave);
 
+        // **Reset power-ups here**
+        speedBoostLevel = 0;
+        damageBoostLevel = 0;
+        UpdateAllSurvivorsPowerUps();
+        SaveAllProgressToFirebase();
 
         // Find all survivors and disable their shooting
         SurvivorShooter[] survivors = FindObjectsOfType<SurvivorShooter>();
@@ -324,8 +344,11 @@ public class GameManager : MonoBehaviour
         StartCoroutine(BossFightSequence());
     }
 
+    
+
     private void SpawnBoss()
     {
+        
         if (bossPrefab != null && bossSpawnPoint != null)
         {
             currentBossInstance = Instantiate(bossPrefab, bossSpawnPoint.position, Quaternion.identity);
@@ -389,7 +412,6 @@ public class GameManager : MonoBehaviour
         {
             Destroy(currentBossInstance);
             currentBossInstance = null;
-            bossClickCount = 0;
             OnBossDefeated();
         }
     }
@@ -397,6 +419,7 @@ public class GameManager : MonoBehaviour
     public void BossClicked()
     {
         bossClickCount++;
+        Debug.Log($"Boss clicked! bossClickCount now = {bossClickCount}");
         totalBossClicks++;
         if (bossFightUIController != null)
             bossFightUIController.UpdateBossClicks(bossClickCount);
@@ -412,29 +435,23 @@ public class GameManager : MonoBehaviour
         if (bossFightUIController != null)
             bossFightUIController.HideAllBossUI();
 
-        // Calculate bonus/penalty
-        float multiplier;
-        if (bossClickCount > 0)
-        {
-            multiplier = 1f + bossClickCount * moneyMultiplierPerClick;
-        }
-        else
-        {
-            multiplier = 0.5f; // Lose half the money as penalty for no clicks
-        }
+        // Calculate bonus based only on positive extra, never penalize
+        float multiplier = (bossClickCount > 0) ? 1f + bossClickCount * moneyMultiplierPerClick : 1f;
+        int finalWaveEarnings = Mathf.RoundToInt(moneyEarnedThisWave * multiplier);
+        int baseThisWave = moneyEarnedThisWave;
+        int bonus = finalWaveEarnings - baseThisWave;
 
-       int finalWaveEarnings = Mathf.RoundToInt(moneyEarnedThisWave * multiplier);
-       Debug.Log($"Boss clicks: {bossClickCount}, Multiplier: {multiplier:F2}, Final money: {finalWaveEarnings}");
-        if (finalWaveEarnings > 0)
-        {
-            AddMoney(finalWaveEarnings); // Only add earnings for the wave 
-        }
-        else
-        {
-            // If result is zero or negative, nothing happens
-        }
+        Debug.Log($"Boss defeated! bossClickCount={bossClickCount}, baseThisWave={baseThisWave}, finalWaveEarnings={finalWaveEarnings}, bonus={bonus}, total before={money}");
 
-        // Proceed with the rest as before (resume game, reset counters, etc)
+        if (bossFightUIController != null)
+        bossFightUIController.UpdateBossBonusOnly(Mathf.Max(bonus, 0));
+
+        if (bonus > 0)
+        AddMoney(bonus);
+
+        Debug.Log($"Total after bonus applied: {money}");
+
+        // Reset for next wave
         bossClickCount = 0;
         moneyEarnedThisWave = 0;
         isWaveActive = true;
@@ -447,6 +464,7 @@ public class GameManager : MonoBehaviour
 
         if (killsUIController != null)
             killsUIController.UpdateKills(killsThisWave, killsToWave);
+
         if (waveCompleteText != null)
             waveCompleteText.gameObject.SetActive(false);
 
@@ -455,7 +473,6 @@ public class GameManager : MonoBehaviour
         if (currentWave > highestWave)
             highestWave = currentWave;
 
-        // Save
         SaveAllProgressToFirebase();
     }
 

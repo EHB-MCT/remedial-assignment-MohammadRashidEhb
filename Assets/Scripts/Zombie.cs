@@ -33,7 +33,9 @@ public class Zombie : MonoBehaviour
         if (currentHealth <= 0)
         {
             Debug.Log("Zombie died. Respawning in same lane.");
-            GameManager.Instance.AddMoney(5);
+            // Calculate reward based on wave
+            int reward = GameManager.Instance.baseZombieReward + (GameManager.Instance.CurrentWave - 1) * 5;
+            GameManager.Instance.AddMoney(reward);
             GameManager.Instance.IncrementKill();
             GameManager.Instance.SpawnZombieInLaneAfterDelay(laneNumber, 0.5f);
             Destroy(gameObject);

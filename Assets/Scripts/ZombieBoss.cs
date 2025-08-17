@@ -21,7 +21,7 @@ public class ZombieBoss : MonoBehaviour
         {
             GameManager.Instance.BossClicked();
         }
-        TakeDamage(1); // Or whatever logic you want for health
+        TakeDamage(1); // Increase Damage per wave 
     }
 
     public void TakeDamage(int damage)
