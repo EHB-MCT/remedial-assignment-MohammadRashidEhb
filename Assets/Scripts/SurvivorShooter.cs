@@ -6,8 +6,8 @@ public class SurvivorShooter : MonoBehaviour
     public GameObject bulletPrefab;
     public Transform firePoint;
     public float shootInterval = 1f;
+    public int bulletDamage = 1;
     private float timer;
-
     public bool canShoot = true;
 
     void Update()
@@ -28,6 +28,14 @@ public class SurvivorShooter : MonoBehaviour
     {
         // Check references before shooting
         if (bulletPrefab == null || firePoint == null) return;
-        Instantiate(bulletPrefab, firePoint.position, Quaternion.identity);
+        GameObject bullet = Instantiate(bulletPrefab, firePoint.position, Quaternion.identity);
+        
+        // This is to set the Bullet DMG
+        Bullet bulletScript = bullet.GetComponent<Bullet>();
+        if (bulletScript != null)
+        {
+            bulletScript.damage = bulletDamage; // This line sets unique damage
+        }
+        
     }
 }

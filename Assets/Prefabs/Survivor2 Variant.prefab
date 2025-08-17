@@ -48,6 +48,10 @@ PrefabInstance:
       propertyPath: m_LocalEulerAnglesHint.z
       value: 0
       objectReference: {fileID: 0}
+    - target: {fileID: 6660531372334222170, guid: f79a999cc65c8a842b54ee641d7a17a1, type: 3}
+      propertyPath: shootInterval
+      value: 0.5
+      objectReference: {fileID: 0}
     - target: {fileID: 8101367987485047618, guid: f79a999cc65c8a842b54ee641d7a17a1, type: 3}
       propertyPath: m_Name
       value: Survivor2 Variant

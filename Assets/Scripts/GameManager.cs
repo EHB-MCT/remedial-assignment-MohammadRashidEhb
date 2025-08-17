@@ -51,6 +51,14 @@ public class GameManager : MonoBehaviour
     public int costTypeC = 60;
     public int sellRefundPercent = 50; // Percent of buy price refunded
 
+    // PowerUps cost + damage
+    public int speedBoostLevel = 0;
+    public int damageBoostLevel = 0;
+    public int baseSpeedBoostCost = 50;
+    public int baseDamageBoostCost = 50;
+    public float speedBoostMultiplierPerLevel = 0.2f; // 20% speed increase per level
+    public int damageBoostBonusPerLevel = 1;          // +1 damage per level
+
     // For the Database
     private DatabaseReference dbRef;
     public string currentUserName; // The logged-in username
@@ -129,6 +137,21 @@ public class GameManager : MonoBehaviour
             var wavesTask = dbRef.Child("users").Child(currentUserName).Child("waves").GetValueAsync();
             var bossFightsTask = dbRef.Child("users").Child(currentUserName).Child("totalBossFights").GetValueAsync();
             var bossClicksTask = dbRef.Child("users").Child(currentUserName).Child("totalBossClicks").GetValueAsync();
+            var speedBoostTask = dbRef.Child("users").Child(currentUserName).Child("speedBoostLevel").GetValueAsync();
+            var damageBoostTask = dbRef.Child("users").Child(currentUserName).Child("damageBoostLevel").GetValueAsync();
+
+            yield return new WaitUntil(() => speedBoostTask.IsCompleted && damageBoostTask.IsCompleted);
+
+            // To extract the values
+            if (speedBoostTask.Exception == null && speedBoostTask.Result.Exists)
+            speedBoostLevel = int.Parse(speedBoostTask.Result.Value.ToString());
+            else
+            speedBoostLevel = 0; // fallback if missing
+
+            if (damageBoostTask.Exception == null && damageBoostTask.Result.Exists)
+            damageBoostLevel = int.Parse(damageBoostTask.Result.Value.ToString());
+            else
+            damageBoostLevel = 0; // fallback if missing
 
             yield return new WaitUntil(() => wavesTask.IsCompleted && bossFightsTask.IsCompleted && bossClicksTask.IsCompleted);
 
@@ -487,6 +510,31 @@ public class GameManager : MonoBehaviour
             GameObject spawned = Instantiate(prefabToSpawn, survivorLanePositions[laneIndex].position, Quaternion.identity);
             survivorInstances[laneIndex] = spawned;
             survivorTypeInLane[laneIndex] = survivorType;
+
+            SurvivorShooter shooter = spawned.GetComponent<SurvivorShooter>();
+            int baseDamage = 1;
+            float baseInterval = 1f;
+
+            if (shooter != null)
+            {
+                switch (survivorType)
+                {
+                    case 1: // Soldier
+                        shooter.bulletDamage = 1;
+                        shooter.shootInterval = 2f;
+                        break;
+                    case 2: // Commando
+                        shooter.bulletDamage = 1;
+                        shooter.shootInterval = 0.5f; // Shoots twice as fast
+                        break;
+                    case 3: // General
+                        shooter.bulletDamage = 2;
+                        shooter.shootInterval = 1f;
+                        break;
+                }
+                shooter.shootInterval = baseInterval / (1f + speedBoostLevel * speedBoostMultiplierPerLevel);
+                shooter.bulletDamage = baseDamage + damageBoostLevel * damageBoostBonusPerLevel;
+            }
         }
         else
         {
@@ -553,6 +601,63 @@ public class GameManager : MonoBehaviour
         };
     }
 
+    public int GetPowerUpCost(bool isSpeed)
+    {
+        int baseCost = isSpeed ? baseSpeedBoostCost : baseDamageBoostCost;
+        int level = isSpeed ? speedBoostLevel : damageBoostLevel;
+
+        return baseCost + (currentWave - 1) * 10 + level * 20; // escalates with wave and level
+    }
+
+    public void BuySpeedBoost()
+    {
+        InternalBuyBoost(true);
+    }
+
+    public void BuyDamageBoost()
+    {
+        InternalBuyBoost(false);
+    }
+
+    private void InternalBuyBoost(bool isSpeed)
+    {
+        int cost = GetPowerUpCost(isSpeed);
+        if (money < cost) return;
+        money -= cost;
+        if (isSpeed) speedBoostLevel++;
+        else damageBoostLevel++;
+        if (moneyUIController != null)
+            moneyUIController.UpdateMoney(money);
+        UpdateAllSurvivorsPowerUps();
+        SaveAllProgressToFirebase();
+    }
+
+    public void UpdateAllSurvivorsPowerUps()
+    {
+        for (int i = 0; i < survivorInstances.Length; i++)
+        {
+            GameObject survivorGO = survivorInstances[i];
+            int survivorType = survivorTypeInLane[i];
+            if (survivorGO != null)
+            {
+                SurvivorShooter shooter = survivorGO.GetComponent<SurvivorShooter>();
+                if (shooter != null)
+                {
+                    int baseDamage = 1;
+                    float baseInterval = 1f;
+                    switch (survivorType)
+                    {
+                        case 1: baseDamage = 1; baseInterval = 2f; break;
+                        case 2: baseDamage = 1; baseInterval = 0.5f; break;
+                        case 3: baseDamage = 2; baseInterval = 1f; break;
+                    }
+                    shooter.shootInterval = baseInterval / (1f + speedBoostLevel * speedBoostMultiplierPerLevel);
+                    shooter.bulletDamage = baseDamage + damageBoostLevel * damageBoostBonusPerLevel;
+                }
+            }
+        }
+    }
+
     // Save/Load Survivors
     private void SaveSurvivorsToFirebase()
     {
@@ -575,9 +680,10 @@ public class GameManager : MonoBehaviour
         dbRef.Child("users").Child(currentUserName).Child("waves").SetValueAsync(highestWave);
         dbRef.Child("users").Child(currentUserName).Child("totalBossFights").SetValueAsync(totalBossFights);
         dbRef.Child("users").Child(currentUserName).Child("totalBossClicks").SetValueAsync(totalBossClicks);
-
+        dbRef.Child("users").Child(currentUserName).Child("speedBoostLevel").SetValueAsync(speedBoostLevel);
+        dbRef.Child("users").Child(currentUserName).Child("damageBoostLevel").SetValueAsync(damageBoostLevel);
+    
         // Save survivors (already implemented in your SaveSurvivorsToFirebase)
         SaveSurvivorsToFirebase();
-}
-
+    }
 }
