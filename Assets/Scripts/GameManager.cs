@@ -13,9 +13,9 @@ public class GameManager : MonoBehaviour
     private int money = 0;
 
     // For wave/kills
-    public KillsUIController killsUIController; 
-    public TMP_Text waveCompleteText; 
-    private int currentWave = 1; 
+    public KillsUIController killsUIController;
+    public TMP_Text waveCompleteText;
+    private int currentWave = 1;
     public int killsToWave = 20;
     private int killsThisWave = 0;
     private bool isWaveActive = true;  // true while zombies spawn, false during boss fight
@@ -27,9 +27,11 @@ public class GameManager : MonoBehaviour
     private GameObject currentBossInstance;
     [HideInInspector] public int bossClickCount = 0; // Reset at boss spawn time
     public BossFightUIController bossFightUIController;
-    
+    public TMP_Text bossPrepText;
+    public GameObject bossUIPanel;  // Parent panel holding all boss UI elements
+
     // Track survivor ownership per lane
-    private int[] survivorTypeInLane = new int[3]; 
+    private int[] survivorTypeInLane = new int[3];
 
     // This is to Keep track of spawned survivor instances so we can destroy on sell
     private GameObject[] survivorInstances = new GameObject[3];
@@ -49,8 +51,12 @@ public class GameManager : MonoBehaviour
     public int costTypeC = 60;
     public int sellRefundPercent = 50; // Percent of buy price refunded
 
+    // For the Database
     private DatabaseReference dbRef;
     public string currentUserName; // The logged-in username
+    private int totalBossFights = 0;
+    private int totalBossClicks = 0;
+    private int highestWave = 1;
 
     private void Awake()
     {
@@ -85,8 +91,9 @@ public class GameManager : MonoBehaviour
 
     private IEnumerator LoadMoneyAndInitializeGame()
     {
-       if (!string.IsNullOrEmpty(currentUserName))
+        if (!string.IsNullOrEmpty(currentUserName))
         {
+            // Load money
             var moneyTask = dbRef.Child("users").Child(currentUserName).Child("money").GetValueAsync();
             yield return new WaitUntil(() => moneyTask.IsCompleted);
 
@@ -99,15 +106,11 @@ public class GameManager : MonoBehaviour
             {
                 money = 0;
             }
-        }
 
-        // update UI with loaded money
-        if (moneyUIController != null)
-            moneyUIController.UpdateMoney(money);
+            if (moneyUIController != null)
+                moneyUIController.UpdateMoney(money);
 
-         // Load survivors from database
-        if (!string.IsNullOrEmpty(currentUserName))
-        {
+            // Load survivors
             var survivorTask = dbRef.Child("users").Child(currentUserName).Child("survivors").GetValueAsync();
             yield return new WaitUntil(() => survivorTask.IsCompleted);
 
@@ -121,22 +124,67 @@ public class GameManager : MonoBehaviour
                         SpawnSurvivorInLane(laneIndex + 1, type);
                 }
             }
+
+            // Load progression stats
+            var wavesTask = dbRef.Child("users").Child(currentUserName).Child("waves").GetValueAsync();
+            var bossFightsTask = dbRef.Child("users").Child(currentUserName).Child("totalBossFights").GetValueAsync();
+            var bossClicksTask = dbRef.Child("users").Child(currentUserName).Child("totalBossClicks").GetValueAsync();
+
+            yield return new WaitUntil(() => wavesTask.IsCompleted && bossFightsTask.IsCompleted && bossClicksTask.IsCompleted);
+
+            if (wavesTask.Exception == null && wavesTask.Result.Exists)
+                highestWave = int.Parse(wavesTask.Result.Value.ToString());
+            else
+                highestWave = 1;
+
+            currentWave = highestWave;
+            killsThisWave = 0;
+            killsToWave = 20 + (currentWave - 1) * 10; // start at right difficulty
+
+            if (killsUIController != null)
+            killsUIController.UpdateKills(killsThisWave, killsToWave);
+
+            if (bossFightsTask.Exception == null && bossFightsTask.Result.Exists)
+                totalBossFights = int.Parse(bossFightsTask.Result.Value.ToString());
+            else
+                totalBossFights = 0;
+
+            if (bossClicksTask.Exception == null && bossClicksTask.Result.Exists)
+                totalBossClicks = int.Parse(bossClicksTask.Result.Value.ToString());
+            else
+                totalBossClicks = 0;
+
+            // Set current wave to highest completed wave
+            currentWave = highestWave;
+
+            // After loading, setup game environment
+            SpawnAllZombiesAtStart();
+
+            // Ensure lane 1 has a survivor on fresh accounts
+            if (survivorTypeInLane[0] == 0)
+                BuySurvivor(1, 1, 0);
+
+            if (killsUIController != null)
+                killsUIController.UpdateKills(killsThisWave, killsToWave);
         }
+        else
+        {
+            // No user logged in, start fresh
+            money = 0;
+            currentWave = 1;
+            highestWave = 1;
 
-        // Spawn zombies in all lanes at start
-        SpawnAllZombiesAtStart();
-
-        // This will ensure lane 1 has at least a TypeA survivor if empty
-        if (survivorTypeInLane[0] == 0)
-            BuySurvivor(1, 1, 0); // free TypeA survivor
+            SpawnAllZombiesAtStart();
+            BuySurvivor(1, 1, 0);
+        }
     }
 
     // Spawns a zombie in a specific lane
     public void SpawnZombieInLane(int laneNumber)
     {
         if (!isWaveActive)
-        return; // Don't spawn zombies if wave is paused
-        
+            return; // Don't spawn zombies if wave is paused
+
         int laneIndex = laneNumber - 1;
         if (laneIndex < 0 || laneIndex >= zombieLanePositions.Length)
         {
@@ -250,7 +298,7 @@ public class GameManager : MonoBehaviour
             survivor.canShoot = false;
         }
         // Spawn the boss
-        SpawnBoss();
+        StartCoroutine(BossFightSequence());
     }
 
     private void SpawnBoss()
@@ -267,18 +315,66 @@ public class GameManager : MonoBehaviour
             }
         }
         if (bossFightUIController != null)
-            bossFightUIController.ShowBossUI(true);
+            bossFightUIController.ShowBossFightUI();
         bossClickCount = 0;
         if (bossFightUIController != null)
             bossFightUIController.UpdateBossClicks(bossClickCount);
         if (bossFightUIController != null)
             bossFightUIController.UpdateBossBonus(moneyEarnedThisWave, bossClickCount, moneyMultiplierPerClick);
+        bossFightUIController.UpdateTimer(bossFightDuration);
+    }
 
+
+    // Hide entire boss UI panel
+    public void HideAllBossUI()
+    {
+        if (bossUIPanel != null)
+            bossUIPanel.SetActive(false);
+    }
+
+    private float bossFightDuration = 15f; // 15 seconds to click boss
+
+    private IEnumerator BossFightSequence()
+    {
+        if (bossFightUIController != null)
+            bossFightUIController.ShowPrepUI();
+
+        yield return new WaitForSeconds(3f);
+
+        if (bossFightUIController != null)
+            bossFightUIController.ShowBossFightUI();
+
+        // Spawn the boss and initialize bossClickCount etc.
+        SpawnBoss();
+
+        // Timer loop updating UI
+        float timer = 0f;
+        while (timer < bossFightDuration)
+        {
+            if (currentBossInstance == null)
+                break;
+
+            timer += Time.deltaTime;
+            float timeLeft = bossFightDuration - timer;
+            if (bossFightUIController != null)
+                bossFightUIController.UpdateTimer(timeLeft);
+
+            yield return null;
+        }
+
+        if (currentBossInstance != null)  // Time ran out, force boss death
+        {
+            Destroy(currentBossInstance);
+            currentBossInstance = null;
+            bossClickCount = 0;
+            OnBossDefeated();
+        }
     }
 
     public void BossClicked()
     {
         bossClickCount++;
+        totalBossClicks++;
         if (bossFightUIController != null)
             bossFightUIController.UpdateBossClicks(bossClickCount);
 
@@ -287,32 +383,39 @@ public class GameManager : MonoBehaviour
             bossFightUIController.UpdateBossBonus(moneyEarnedThisWave, bossClickCount, moneyMultiplierPerClick);
     }
 
-
     public float moneyMultiplierPerClick = 0.1f; // 10% extra per click (customizable in Inspector)
-
     public void OnBossDefeated()
     {
+        if (bossFightUIController != null)
+            bossFightUIController.HideAllBossUI();
+
         // Calculate bonus/penalty
-        float multiplier = 1.0f;
+        float multiplier;
         if (bossClickCount > 0)
         {
-            multiplier += bossClickCount * moneyMultiplierPerClick;
+            multiplier = 1f + bossClickCount * moneyMultiplierPerClick;
         }
         else
         {
             multiplier = 0.5f; // Lose half the money as penalty for no clicks
         }
 
-        int finalWaveEarnings = Mathf.RoundToInt(moneyEarnedThisWave * multiplier);
-
-        money -= moneyEarnedThisWave; // Remove the initial earned money
-        AddMoney(finalWaveEarnings);  // Add the final, multiplied (or penalized) money
+       int finalWaveEarnings = Mathf.RoundToInt(moneyEarnedThisWave * multiplier);
+       Debug.Log($"Boss clicks: {bossClickCount}, Multiplier: {multiplier:F2}, Final money: {finalWaveEarnings}");
+        if (finalWaveEarnings > 0)
+        {
+            AddMoney(finalWaveEarnings); // Only add earnings for the wave 
+        }
+        else
+        {
+            // If result is zero or negative, nothing happens
+        }
 
         // Proceed with the rest as before (resume game, reset counters, etc)
         bossClickCount = 0;
         moneyEarnedThisWave = 0;
-
         isWaveActive = true;
+
         SurvivorShooter[] survivors = FindObjectsOfType<SurvivorShooter>();
         foreach (var survivor in survivors)
             survivor.canShoot = true;
@@ -323,9 +426,14 @@ public class GameManager : MonoBehaviour
             killsUIController.UpdateKills(killsThisWave, killsToWave);
         if (waveCompleteText != null)
             waveCompleteText.gameObject.SetActive(false);
-        if (bossFightUIController != null)
-            bossFightUIController.ShowBossUI(false);
 
+        totalBossFights++;
+        totalBossClicks += bossClickCount;
+        if (currentWave > highestWave)
+            highestWave = currentWave;
+
+        // Save
+        SaveAllProgressToFirebase();
     }
 
     // Hide Wavecomplete message after delay
@@ -456,4 +564,20 @@ public class GameManager : MonoBehaviour
                 .Child($"lane{i}").SetValueAsync(survivorTypeInLane[i]);
         }
     }
+
+    private void SaveAllProgressToFirebase()
+    {
+        if (string.IsNullOrEmpty(currentUserName))
+            return;
+
+        // Save individual stats to user data
+        dbRef.Child("users").Child(currentUserName).Child("money").SetValueAsync(money);
+        dbRef.Child("users").Child(currentUserName).Child("waves").SetValueAsync(highestWave);
+        dbRef.Child("users").Child(currentUserName).Child("totalBossFights").SetValueAsync(totalBossFights);
+        dbRef.Child("users").Child(currentUserName).Child("totalBossClicks").SetValueAsync(totalBossClicks);
+
+        // Save survivors (already implemented in your SaveSurvivorsToFirebase)
+        SaveSurvivorsToFirebase();
+}
+
 }
