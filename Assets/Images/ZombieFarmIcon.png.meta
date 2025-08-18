@@ -160,7 +160,8 @@ TextureImporter:
     secondaryTextures: []
     spriteCustomMetadata:
       entries: []
-    nameFileIdTable: {}
+    nameFileIdTable:
+      ZombieFarmIcon_0: 5658299927890333933
   mipmapLimitGroupName: 
   pSDRemoveMatte: 0
   userData: 
