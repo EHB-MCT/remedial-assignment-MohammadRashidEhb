@@ -22,9 +22,6 @@ ZombieFarm is a mobile and desktop idle shooter built in Unity 6, featuring inte
 
 Detailed instructions, setup guides, and game insights are provided in the included PDF documentation!
 
-**Download the full docs:**  
-📄 `ZombieFarm_Documentation.pdf` (replace with actual path or Itch.io link)
-
 ### Quick Start
 
 1. **Clone or Download:**  
